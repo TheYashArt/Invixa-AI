@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text, MetaData
 import ollama
-from fastapi import FastAPI, HTTPException
+from datetime import datetime
+
+from app_db_models import SessionLocal, SavedTable
 
 router = APIRouter()
 
@@ -12,8 +14,55 @@ DB_URL = "sqlite:///sql_ai.db"
 engine = create_engine(DB_URL)
 metadata = MetaData()
 
+from typing import Optional
+
 class QueryRequest(BaseModel):
     prompt: str
+    user_id: Optional[int] = None
+
+
+def sync_tables_to_app_db(user_id: int = None):
+    """
+    Reflect all tables from sql_ai.db and upsert their metadata
+    into app.db's SavedTable records, keeping stats in sync.
+    """
+    try:
+        fresh_meta = MetaData()
+        fresh_meta.reflect(bind=engine)
+        db = SessionLocal()
+        with engine.connect() as conn:
+            for table_name, table_obj in fresh_meta.tables.items():
+                # Skip internal tables
+                if table_name == "saved_charts":
+                    continue
+                row_count = conn.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
+                col_count = len(table_obj.columns)
+
+                existing = db.query(SavedTable).filter(SavedTable.table_name == table_name).first()
+                if existing:
+                    existing.row_count = row_count
+                    existing.col_count = col_count
+                    existing.last_updated = datetime.utcnow()
+                    if user_id and not existing.user_id:
+                        existing.user_id = user_id
+                else:
+                    db.add(SavedTable(
+                        user_id=user_id,
+                        table_name=table_name,
+                        row_count=row_count,
+                        col_count=col_count,
+                    ))
+
+        # Remove app.db records for tables that no longer exist in sql_ai.db
+        live_names = {t for t in fresh_meta.tables if t != "saved_charts"}
+        stale = db.query(SavedTable).filter(SavedTable.table_name.notin_(live_names)).all()
+        for s in stale:
+            db.delete(s)
+
+        db.commit()
+        db.close()
+    except Exception as e:
+        print("sync_tables_to_app_db error:", e)
 
 def get_current_schema():
     """Reflects the DB to get current table structures for the AI context."""
@@ -95,6 +144,10 @@ async def handle_sql_request(request: QueryRequest):
                     "rows_affected": result.rowcount
                 }
                 message = "Database updated successfully"
+
+            # Sync table metadata to app.db after any mutation
+            if not result.returns_rows:
+                sync_tables_to_app_db(user_id=request.user_id)
             
             return {
                 "status": "success",
