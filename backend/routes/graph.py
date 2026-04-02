@@ -33,28 +33,17 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, text, MetaData
 import ollama
 
+from app_db_models import SessionLocal, SavedChart as AppSavedChart
+
 router = APIRouter()
 
 DB_URL = "sqlite:///sql_ai.db"
 engine = create_engine(DB_URL)
 
 def init_db():
-    with engine.connect() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS saved_charts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT,
-                chart_type TEXT,
-                color TEXT,
-                sql_query TEXT,
-                x_key TEXT,
-                y_key TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
-        conn.commit()
+    """No-op — charts are now stored in app.db, not sql_ai.db."""
+    pass
 
-init_db()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -102,8 +91,11 @@ def coerce_numeric(data: list[dict], value_key: str) -> list[dict]:
 
 # ── request model ─────────────────────────────────────────────────────────────
 
+from typing import Optional
+
 class GraphRequest(BaseModel):
     prompt: str
+    user_id: Optional[int] = None
 
 
 # ── system prompt ─────────────────────────────────────────────────────────────
@@ -223,23 +215,23 @@ async def generate_graph(request: GraphRequest):
         if not rows:
             warning = "The query returned no rows. Try inserting some data first."
 
-        # Step 10: Save to history
+        # Step 10: Save chart to app.db only
         try:
-            with engine.connect() as conn:
-                conn.execute(text("""
-                    INSERT INTO saved_charts (title, chart_type, color, sql_query, x_key, y_key)
-                    VALUES (:title, :chart_type, :color, :sql_query, :x_key, :y_key)
-                """), {
-                    "title": spec.get("title", "Chart"),
-                    "chart_type": spec["chart_type"],
-                    "color": spec.get("color", "#6366f1"),
-                    "sql_query": sql_query,
-                    "x_key": spec["x_key"],
-                    "y_key": spec["y_key"]
-                })
-                conn.commit()
+            db = SessionLocal()
+            app_chart = AppSavedChart(
+                user_id=request.user_id,
+                title=spec.get("title", "Chart"),
+                chart_type=spec["chart_type"],
+                color=spec.get("color", "#6366f1"),
+                sql_query=sql_query,
+                x_key=spec["x_key"],
+                y_key=spec["y_key"],
+            )
+            db.add(app_chart)
+            db.commit()
+            db.close()
         except Exception as save_err:
-            print("Failed to save chart history:", save_err)
+            print("Failed to save chart history to app.db:", save_err)
 
         return {
             "status": "success",
@@ -263,12 +255,13 @@ async def generate_graph(request: GraphRequest):
 
 @router.get("/saved-graphs")
 async def get_saved_graphs():
+    """Read chart history from app.db, re-run SQL against sql_ai.db for live data."""
     try:
+        db = SessionLocal()
+        records = db.query(AppSavedChart).order_by(AppSavedChart.created_at.desc()).limit(6).all()
         results = []
         with engine.connect() as conn:
-            records = conn.execute(text("SELECT * FROM saved_charts ORDER BY id DESC LIMIT 6")).fetchall()
             for rec in records:
-                # Re-run the SQL to get live data for the historical chart template!
                 chart_data = []
                 try:
                     data_res = conn.execute(text(rec.sql_query))
@@ -276,17 +269,19 @@ async def get_saved_graphs():
                     chart_data = coerce_numeric(raw_rows, rec.y_key)
                 except Exception:
                     pass
-                
+
                 results.append({
                     "id": rec.id,
                     "title": rec.title,
                     "type": rec.chart_type,
                     "color": rec.color,
-                    "date": str(rec.created_at),
+                    "date": rec.created_at.isoformat() if rec.created_at else "",
                     "data": chart_data,
                     "x_key": rec.x_key,
-                    "y_key": rec.y_key
+                    "y_key": rec.y_key,
                 })
+        db.close()
         return {"charts": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

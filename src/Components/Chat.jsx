@@ -165,7 +165,7 @@ function ChartRenderer({ spec }) {
 
 // ───────────────────────── Main Analytics Page ─────────────────────────
 
-export default function Chat() {
+export default function Chat({ user }) {
     const [messages, setMessages] = useState([
         {
             id: 1,
@@ -205,7 +205,7 @@ export default function Chat() {
             const res = await fetch(`${API_BASE}/generate-graph`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: trimmed }),
+                body: JSON.stringify({ prompt: trimmed, user_id: user?.id }),
             });
             const data = await res.json();
             

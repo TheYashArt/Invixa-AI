@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import ai, graph
+from routes import ai, graph, app_db
 
 # import ollama
 
@@ -23,3 +23,4 @@ app.add_middleware(
 
 app.include_router(ai.router)
 app.include_router(graph.router)
+app.include_router(app_db.router)

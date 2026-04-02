@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { 
     User, Mail, LayoutTemplate, ShieldCheck, Key, Settings, 
     Database as DbIcon, HardDrive, Cpu, Clock, Activity, AlertCircle,
-    BarChart3, LineChart as LineIcon, PieChart as PieIcon, ScatterChart as ScatterIcon, Search, Maximize2, X
+    BarChart3, LineChart as LineIcon, PieChart as PieIcon, ScatterChart as ScatterIcon, Search, Maximize2, X,
+    LogOut, Save, Lock, CheckCircle, Edit3
 } from "lucide-react";
 import { 
     AreaChart, Area, BarChart, Bar, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -11,11 +12,25 @@ import {
 
 const API_BASE = "http://localhost:8000";
 
-export default function Account() {
+export default function Account({ user, setUser, onLogout }) {
     const [dbInfo, setDbInfo] = useState({ tables: 0, rows: 0, loading: true });
     const [history, setHistory] = useState([]);
     const [loadingHistory, setLoadingHistory] = useState(true);
-    const [activeChart, setActiveChart] = useState(null); // Used for the modal
+    const [activeChart, setActiveChart] = useState(null);
+
+    // Editing states
+    const [editMode, setEditMode] = useState(false);
+    const [editUsername, setEditUsername] = useState(user?.username || "");
+    const [editRole, setEditRole] = useState(user?.role || "");
+    const [saving, setSaving] = useState(false);
+    const [saveMsg, setSaveMsg] = useState("");
+
+    // Change password states
+    const [showPwdForm, setShowPwdForm] = useState(false);
+    const [currentPwd, setCurrentPwd] = useState("");
+    const [newPwd, setNewPwd] = useState("");
+    const [pwdMsg, setPwdMsg] = useState({ type: "", text: "" });
+    const [pwdSaving, setPwdSaving] = useState(false);
 
     // Chart Icon mapper
     const getChartIcon = (type) => {
@@ -142,12 +157,60 @@ export default function Account() {
             .catch(() => setLoadingHistory(false));
     }, []);
 
-    const userProfile = {
-        name: "Yash Shelke",
-        email: "yash.Shelke@example.com",
-        role: "Admin Organizer",
-        joined: "March 2026",
+    // Handle profile update
+    const handleSaveProfile = async () => {
+        setSaving(true);
+        setSaveMsg("");
+        try {
+            const res = await fetch(`${API_BASE}/app/users/me/${user.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: editUsername, role: editRole }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Update failed");
+            // Sync user state and localStorage
+            const updatedUser = data.user;
+            setUser(updatedUser);
+            localStorage.setItem("invixa_user", JSON.stringify(updatedUser));
+            setSaveMsg("Profile updated!");
+            setEditMode(false);
+            setTimeout(() => setSaveMsg(""), 3000);
+        } catch (err) {
+            setSaveMsg("Error: " + err.message);
+        } finally {
+            setSaving(false);
+        }
     };
+
+    // Handle password change
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        setPwdSaving(true);
+        setPwdMsg({ type: "", text: "" });
+        try {
+            const res = await fetch(`${API_BASE}/app/users/me/${user.id}/password`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ current_password: currentPwd, new_password: newPwd }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Password change failed");
+            setPwdMsg({ type: "success", text: "Password changed successfully!" });
+            setCurrentPwd("");
+            setNewPwd("");
+            setTimeout(() => { setShowPwdForm(false); setPwdMsg({ type: "", text: "" }); }, 2000);
+        } catch (err) {
+            setPwdMsg({ type: "error", text: err.message });
+        } finally {
+            setPwdSaving(false);
+        }
+    };
+
+    // Format join date
+    const joinedDate = user?.joined_at
+        ? new Date(user.joined_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
+        : "Unknown";
 
     return (
         <div className="min-h-full bg-gray-950 text-white p-6 sm:p-10 font-sans">
@@ -165,9 +228,6 @@ export default function Account() {
                         </h1>
                         <p className="text-sm text-gray-500">Manage your profile, database connections, and AI workspace.</p>
                     </div>
-                    {/* <button className="hidden sm:flex items-center gap-2 px-4 py-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-xl hover:bg-indigo-500/20 transition-all font-medium text-sm">
-                        <Settings size={16} /> Edit Settings
-                    </button> */}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -179,27 +239,122 @@ export default function Account() {
                         <div className="bg-gray-900/40 border border-gray-800/80 rounded-3xl p-6 backdrop-blur-xl shadow-lg">
                             <div className="flex flex-col items-center text-center">
                                 <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-3xl font-bold text-white shadow-xl shadow-indigo-900/20 mb-4 border-4 border-gray-950">
-                                    {userProfile.name.charAt(0)}
+                                    {user?.username?.charAt(0)?.toUpperCase() || "U"}
                                 </div>
-                                <h2 className="text-xl font-bold text-white">{userProfile.name}</h2>
+
+                                {editMode ? (
+                                    <input
+                                        value={editUsername}
+                                        onChange={(e) => setEditUsername(e.target.value)}
+                                        className="text-xl font-bold text-white bg-gray-950 border border-gray-700 rounded-xl px-3 py-1.5 text-center focus:outline-none focus:border-indigo-500/60 w-full mb-2"
+                                    />
+                                ) : (
+                                    <h2 className="text-xl font-bold text-white">{user?.username || "User"}</h2>
+                                )}
+
                                 <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-mono mt-2 flex items-center gap-1.5 inline-flex">
-                                    <ShieldCheck size={12} /> {userProfile.role}
+                                    <ShieldCheck size={12} /> {user?.role || "user"}
                                 </span>
                             </div>
 
                             <div className="mt-8 flex flex-col gap-4 text-sm text-gray-400">
                                 <div className="flex items-center gap-3">
                                     <Mail size={16} className="text-indigo-400" />
-                                    <span>{userProfile.email}</span>
+                                    <span className="truncate">{user?.email || "—"}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <Clock size={16} className="text-indigo-400" />
-                                    <span>Joined {userProfile.joined}</span>
+                                    <span>Joined {joinedDate}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <Key size={16} className="text-indigo-400" />
-                                    <span>API Access: <span className="text-emerald-400 font-mono">Active</span></span>
+                                    <span>API Access: <span className="text-emerald-400 font-mono">{user?.is_active ? "Active" : "Disabled"}</span></span>
                                 </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="mt-6 flex flex-col gap-2">
+                                {editMode ? (
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleSaveProfile}
+                                            disabled={saving}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-xl hover:bg-indigo-500/20 transition-all text-sm font-medium disabled:opacity-50"
+                                        >
+                                            {saving ? <div className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" /> : <><Save size={14} /> Save</>}
+                                        </button>
+                                        <button
+                                            onClick={() => { setEditMode(false); setEditUsername(user?.username || ""); }}
+                                            className="px-4 py-2.5 bg-gray-800/50 border border-gray-700/50 text-gray-400 rounded-xl hover:bg-gray-800 transition-all text-sm font-medium"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => setEditMode(true)}
+                                        className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-800 hover:text-white transition-all text-sm font-medium"
+                                    >
+                                        <Edit3 size={14} /> Edit Profile
+                                    </button>
+                                )}
+
+                                {saveMsg && (
+                                    <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${saveMsg.startsWith("Error") ? "bg-red-500/8 border border-red-500/20 text-red-400" : "bg-emerald-500/8 border border-emerald-500/20 text-emerald-400"}`}>
+                                        {saveMsg.startsWith("Error") ? <AlertCircle size={12} /> : <CheckCircle size={12} />}
+                                        {saveMsg}
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={() => setShowPwdForm(!showPwdForm)}
+                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-gray-800/50 border border-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-800 hover:text-white transition-all text-sm font-medium"
+                                >
+                                    <Lock size={14} /> Change Password
+                                </button>
+
+                                {/* Password change form */}
+                                {showPwdForm && (
+                                    <form onSubmit={handleChangePassword} className="flex flex-col gap-3 bg-gray-950 border border-gray-800/60 rounded-xl p-4 mt-1">
+                                        <input
+                                            type="password"
+                                            placeholder="Current password"
+                                            value={currentPwd}
+                                            onChange={(e) => setCurrentPwd(e.target.value)}
+                                            required
+                                            className="w-full px-3 py-2.5 bg-gray-900 border border-gray-800/80 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500/60"
+                                        />
+                                        <input
+                                            type="password"
+                                            placeholder="New password (min 6 chars)"
+                                            value={newPwd}
+                                            onChange={(e) => setNewPwd(e.target.value)}
+                                            required
+                                            minLength={6}
+                                            className="w-full px-3 py-2.5 bg-gray-900 border border-gray-800/80 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500/60"
+                                        />
+                                        {pwdMsg.text && (
+                                            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${pwdMsg.type === "error" ? "bg-red-500/8 border border-red-500/20 text-red-400" : "bg-emerald-500/8 border border-emerald-500/20 text-emerald-400"}`}>
+                                                {pwdMsg.type === "error" ? <AlertCircle size={12} /> : <CheckCircle size={12} />}
+                                                {pwdMsg.text}
+                                            </div>
+                                        )}
+                                        <button
+                                            type="submit"
+                                            disabled={pwdSaving}
+                                            className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-lg hover:bg-indigo-500/20 transition-all text-sm font-medium disabled:opacity-50"
+                                        >
+                                            {pwdSaving ? <div className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin" /> : "Update Password"}
+                                        </button>
+                                    </form>
+                                )}
+
+                                <button
+                                    onClick={onLogout}
+                                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-red-500/8 border border-red-500/20 text-red-400 rounded-xl hover:bg-red-500/15 transition-all text-sm font-medium mt-2"
+                                >
+                                    <LogOut size={14} /> Sign Out
+                                </button>
                             </div>
                         </div>
 
