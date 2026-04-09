@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import ai, graph, app_db
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # import ollama
 

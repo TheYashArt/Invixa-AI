@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text, MetaData
-import ollama
+from groq import Groq
 from datetime import datetime
+import os
 
 from app_db_models import SessionLocal, SavedTable
 
@@ -13,6 +14,11 @@ router = APIRouter()
 DB_URL = "sqlite:///sql_ai.db"
 engine = create_engine(DB_URL)
 metadata = MetaData()
+
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 from typing import Optional
 
@@ -106,12 +112,15 @@ async def handle_sql_request(request: QueryRequest):
 
     try:
         # C. Call Local Ollama
-        response = ollama.chat(model='deepseek-v3.1:671b-cloud', messages=[
-            {'role': 'system', 'content': system_instruction},
-            {'role': 'user', 'content': request.prompt},
-        ])
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {'role': 'system', 'content': system_instruction},
+                {'role': 'user', 'content': request.prompt},
+            ]
+        )
         
-        generated_text = response['message']['content'].strip()
+        generated_text = response.choices[0].message.content.strip()
 
         # D. If the LLM returned plain text (greeting, explanation, etc.) — don't execute it
         if not is_sql(generated_text):
@@ -126,9 +135,12 @@ async def handle_sql_request(request: QueryRequest):
         generated_sql = generated_text
 
         # E. Get an explanation of the SQL from the LLM
-        explaination = ollama.chat(model="deepseek-v3.1:671b-cloud", messages=[
-            {'role': "user", 'content': f"Briefly explain what this SQL does in plain English: {generated_sql}"}
-        ])
+        explaination = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {'role': "user", 'content': f"Briefly explain what this SQL does in plain English: {generated_sql}"}
+            ]
+        )
         
         # Split into individual statements (use a different loop var to avoid shadowing)
         queries = [q.strip() for q in generated_sql.split(';') if q.strip()]

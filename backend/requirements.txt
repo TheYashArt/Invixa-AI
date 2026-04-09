@@ -1,8 +1,9 @@
 fastapi
-ollama
 sqlalchemy
 uvicorn
 pydantic[email]
 passlib[bcrypt]
 python-multipart
 bcrypt
+groq
+python-dotenv

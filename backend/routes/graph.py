@@ -31,7 +31,8 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text, MetaData
-import ollama
+from groq import Groq
+import os
 
 from app_db_models import SessionLocal, SavedChart as AppSavedChart
 
@@ -39,6 +40,8 @@ router = APIRouter()
 
 DB_URL = "sqlite:///sql_ai.db"
 engine = create_engine(DB_URL)
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 def init_db():
     """No-op — charts are now stored in app.db, not sql_ai.db."""
@@ -159,15 +162,16 @@ async def generate_graph(request: GraphRequest):
 
     try:
         # Step 2: Ask the LLM for a chart spec
-        response = ollama.chat(
-            model="deepseek-v3.1:671b-cloud",
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": request.prompt},
-            ]
+            ],
+            response_format={"type": "json_object"}
         )
 
-        raw = response["message"]["content"].strip()
+        raw = response.choices[0].message.content.strip()
 
         # Step 3: Strip markdown fences if present
         clean = strip_markdown_fences(raw)
