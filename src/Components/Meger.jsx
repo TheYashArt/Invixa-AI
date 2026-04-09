@@ -37,7 +37,7 @@ export default function Merger() {
         localStorage.removeItem("invixa_user");
         setSelected("Home");
         // Fire-and-forget logout call
-        fetch("http://localhost:8000/app/auth/logout", { method: "POST" }).catch(() => {});
+        fetch("https://invixa-ai.onrender.com/app/auth/logout", { method: "POST" }).catch(() => {});
     };
 
     // Wait until we've checked localStorage before rendering
