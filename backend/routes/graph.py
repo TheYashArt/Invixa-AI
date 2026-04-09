@@ -33,10 +33,12 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, text, MetaData
 from groq import Groq
 import os
+from dotenv import load_dotenv
 
 from app_db_models import SessionLocal, SavedChart as AppSavedChart
 
 router = APIRouter()
+load_dotenv()
 
 DB_URL = "sqlite:///sql_ai.db"
 engine = create_engine(DB_URL)

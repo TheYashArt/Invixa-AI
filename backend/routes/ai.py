@@ -4,10 +4,12 @@ from sqlalchemy import create_engine, text, MetaData
 from groq import Groq
 from datetime import datetime
 import os
+from dotenv import load_dotenv
 
 from app_db_models import SessionLocal, SavedTable
 
 router = APIRouter()
+load_dotenv()
 
 
 # 1. Database Setup (using SQLite for this example)
