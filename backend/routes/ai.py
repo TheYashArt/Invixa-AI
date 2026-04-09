@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text, MetaData
 import ollama
-from fastapi import FastAPI, HTTPException
+from datetime import datetime
+
+from app_db_models import SessionLocal, SavedTable
 
 router = APIRouter()
 
@@ -12,8 +14,55 @@ DB_URL = "sqlite:///sql_ai.db"
 engine = create_engine(DB_URL)
 metadata = MetaData()
 
+from typing import Optional
+
 class QueryRequest(BaseModel):
     prompt: str
+    user_id: Optional[int] = None
+
+
+def sync_tables_to_app_db(user_id: int = None):
+    """
+    Reflect all tables from sql_ai.db and upsert their metadata
+    into app.db's SavedTable records, keeping stats in sync.
+    """
+    try:
+        fresh_meta = MetaData()
+        fresh_meta.reflect(bind=engine)
+        db = SessionLocal()
+        with engine.connect() as conn:
+            for table_name, table_obj in fresh_meta.tables.items():
+                # Skip internal tables
+                if table_name == "saved_charts":
+                    continue
+                row_count = conn.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
+                col_count = len(table_obj.columns)
+
+                existing = db.query(SavedTable).filter(SavedTable.table_name == table_name).first()
+                if existing:
+                    existing.row_count = row_count
+                    existing.col_count = col_count
+                    existing.last_updated = datetime.utcnow()
+                    if user_id and not existing.user_id:
+                        existing.user_id = user_id
+                else:
+                    db.add(SavedTable(
+                        user_id=user_id,
+                        table_name=table_name,
+                        row_count=row_count,
+                        col_count=col_count,
+                    ))
+
+        # Remove app.db records for tables that no longer exist in sql_ai.db
+        live_names = {t for t in fresh_meta.tables if t != "saved_charts"}
+        stale = db.query(SavedTable).filter(SavedTable.table_name.notin_(live_names)).all()
+        for s in stale:
+            db.delete(s)
+
+        db.commit()
+        db.close()
+    except Exception as e:
+        print("sync_tables_to_app_db error:", e)
 
 def get_current_schema():
     """Reflects the DB to get current table structures for the AI context."""
@@ -81,28 +130,50 @@ async def handle_sql_request(request: QueryRequest):
             {'role': "user", 'content': f"Briefly explain what this SQL does in plain English: {generated_sql}"}
         ])
         
-        # F. Execute via SQLAlchemy
+        # Split into individual statements (use a different loop var to avoid shadowing)
+        queries = [q.strip() for q in generated_sql.split(';') if q.strip()]
+        
+        # F. Execute ALL queries via SQLAlchemy in a single connection
+        all_content = []
+        executed_queries = []
+        message = "Database updated successfully"
+        had_mutation = False
+        
         with engine.connect() as connection:
-            result = connection.execute(text(generated_sql))
+            for query in queries:
+                result = connection.execute(text(query))
+                executed_queries.append(query)
+                
+                if result.returns_rows:
+                    rows = [dict(row) for row in result.mappings()]
+                    all_content.extend(rows)
+                    message = "Data fetched successfully"
+                else:
+                    had_mutation = True
+            
+            # Commit once after all queries
             connection.commit()
-            
-            if result.returns_rows:
-                content = [dict(row) for row in result.mappings()]
-                message = "Data fetched successfully"
-            else:
-                content = {
-                    "message": "Action completed successfully",
-                    "rows_affected": result.rowcount
-                }
-                message = "Database updated successfully"
-            
-            return {
-                "status": "success",
-                "executed_sql": generated_sql,
-                "message": message,
-                "explanation": explaination['message']['content'].strip(),
-                "content": content
+        
+        # Sync table metadata to app.db after any mutation
+        if had_mutation:
+            sync_tables_to_app_db(user_id=request.user_id)
+        
+        # Build the final content
+        if len(all_content) > 0:
+            content = all_content
+        else:
+            content = {
+                "message": f"Action completed successfully — {len(queries)} statement(s) executed",
+                "rows_affected": len(queries)
             }
+        
+        return {
+            "status": "success",
+            "executed_sql": ";\n".join(executed_queries),
+            "message": message,
+            "explanation": explaination['message']['content'].strip(),
+            "content": content
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -380,7 +380,7 @@ function DatabasePreview({ refreshTrigger }) {
 }
 
 // ───────────────────────── Main Database Page ─────────────────────────
-export default function Database() {
+export default function Database({ user }) {
     const [messages, setMessages] = useState([
         {
             id: 1,
@@ -433,7 +433,7 @@ export default function Database() {
             const res = await fetch(`${API_BASE}/generate-sql`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: trimmed }),
+                body: JSON.stringify({ prompt: trimmed, user_id: user?.id }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || "Request failed");
