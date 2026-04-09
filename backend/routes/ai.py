@@ -130,32 +130,50 @@ async def handle_sql_request(request: QueryRequest):
             {'role': "user", 'content': f"Briefly explain what this SQL does in plain English: {generated_sql}"}
         ])
         
-        # F. Execute via SQLAlchemy
+        # Split into individual statements (use a different loop var to avoid shadowing)
+        queries = [q.strip() for q in generated_sql.split(';') if q.strip()]
+        
+        # F. Execute ALL queries via SQLAlchemy in a single connection
+        all_content = []
+        executed_queries = []
+        message = "Database updated successfully"
+        had_mutation = False
+        
         with engine.connect() as connection:
-            result = connection.execute(text(generated_sql))
+            for query in queries:
+                result = connection.execute(text(query))
+                executed_queries.append(query)
+                
+                if result.returns_rows:
+                    rows = [dict(row) for row in result.mappings()]
+                    all_content.extend(rows)
+                    message = "Data fetched successfully"
+                else:
+                    had_mutation = True
+            
+            # Commit once after all queries
             connection.commit()
-            
-            if result.returns_rows:
-                content = [dict(row) for row in result.mappings()]
-                message = "Data fetched successfully"
-            else:
-                content = {
-                    "message": "Action completed successfully",
-                    "rows_affected": result.rowcount
-                }
-                message = "Database updated successfully"
-
-            # Sync table metadata to app.db after any mutation
-            if not result.returns_rows:
-                sync_tables_to_app_db(user_id=request.user_id)
-            
-            return {
-                "status": "success",
-                "executed_sql": generated_sql,
-                "message": message,
-                "explanation": explaination['message']['content'].strip(),
-                "content": content
+        
+        # Sync table metadata to app.db after any mutation
+        if had_mutation:
+            sync_tables_to_app_db(user_id=request.user_id)
+        
+        # Build the final content
+        if len(all_content) > 0:
+            content = all_content
+        else:
+            content = {
+                "message": f"Action completed successfully — {len(queries)} statement(s) executed",
+                "rows_affected": len(queries)
             }
+        
+        return {
+            "status": "success",
+            "executed_sql": ";\n".join(executed_queries),
+            "message": message,
+            "explanation": explaination['message']['content'].strip(),
+            "content": content
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
