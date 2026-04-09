@@ -9,7 +9,7 @@ import {
     LineChart, Line, PieChart, Pie, ScatterChart, Scatter, ComposedChart, Cell, CartesianGrid, Legend
 } from "recharts";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://invixa-ai.onrender.com";
 
 export default function Account() {
     const [dbInfo, setDbInfo] = useState({ tables: 0, rows: 0, loading: true });

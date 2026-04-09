@@ -7,7 +7,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://invixa-ai.onrender.com";
 
 // ───────────────────────── helpers ─────────────────────────
 function TypewriterText({ text, speed = 8 }) {

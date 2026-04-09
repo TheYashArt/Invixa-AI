@@ -7,10 +7,7 @@ from routes import ai, graph
 app = FastAPI()
 
 origins = [
-    "https://localhost:5173",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
+    "https://invixa-ai-qjia.vercel.app"
 ]
 
 app.add_middleware(

@@ -2,7 +2,7 @@ import { Database, Send, Sparkle, TableProperties, Circle, ArrowRight, LayoutDas
 import { useEffect, useState } from "react";
 
 export default function HomePage({ setSelected }) {
-    const API_BASE = "http://localhost:8000";
+    const API_BASE = "https://invixa-ai.onrender.com";
     const [tables, setTables] = useState(0);
     const [rows, setRows] = useState(0);
     const [cols, setCols] = useState(0)
