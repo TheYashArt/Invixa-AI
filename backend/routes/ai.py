@@ -185,7 +185,7 @@ async def handle_sql_request(request: QueryRequest):
             "status": "success",
             "executed_sql": ";\n".join(executed_queries),
             "message": message,
-            "explanation": explaination['message']['content'].strip(),
+            "explanation": explaination.choices[0].message.content.strip(),
             "content": content
         }
 
